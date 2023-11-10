@@ -42,5 +42,3 @@ Thank you for using the PSAC-6mA model! If you have any questions or need furthe
 
 Author: Yu
 Contact: 3033795307@qq.com
-
-License Information: [Specify License Information if Applicable]
