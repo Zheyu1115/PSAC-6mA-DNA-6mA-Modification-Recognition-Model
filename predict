@@ -1,0 +1,103 @@
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from Model import Deepnet
+import gc
+from index import cofusion_matrix, sensitivity, specificity, auc, mcc, accuracy, precision, recall, f1, cutoff, AUPRC
+metrics_dict = {"sensitivity":sensitivity, "specificity":specificity, "accuracy":accuracy,"mcc":mcc,"auc":auc,"precision":precision,"recall":recall,"f1":f1,"AUPRC":AUPRC}
+
+def encode(DNA_sequence):
+    torch_sq = []
+    encode_ = {'A' : 0, 'C' : 1 , 'G' : 2 , 'T' : 3 }
+    for base in DNA_sequence:
+        base = encode_[base]
+        torch_sq.append(base)
+    x = torch.tensor(torch_sq)
+    x = x.flatten()
+    return x
+
+def dataProcessing(path):
+    file = open(path, "r")
+    l1 = len(open(path).readlines())
+    count = 0
+    Training = [0] * l1
+    for line in file:
+        Data = line.strip('\n')
+        Training[count] = encode(Data)
+        count = count + 1
+    return Training
+
+
+def prepareData(PositiveCSV, NegativeCSV):
+    Positive = dataProcessing(PositiveCSV)
+    Negative = dataProcessing(NegativeCSV)
+
+    len_data1 = len(Positive)
+    len_data2 = len(Negative)
+
+    Positive_y = torch.ones(len_data1, dtype=torch.float32)
+    Negative_y = torch.zeros(len_data2, dtype=torch.float32)
+
+    for num in range(len(Positive)):
+        Positive[num] = tuple((Positive[num], Positive_y[num]))
+        Negative[num] = tuple((Negative[num], Negative_y[num]))
+    Dataset = Positive + Negative
+    return Dataset
+
+
+# 预测函数
+def predict(PositiveCSV, NegativeCSV, model_path):
+    # 数据加载
+    AllData = prepareData(PositiveCSV, NegativeCSV)
+    data = DataLoader(AllData, batch_size=128)
+    # 损失函数
+    criterion = nn.BCELoss()
+    # 加载训练好的模型
+    net = Deepnet(feature=128, dropout=0.3, filter_num=128, seq_len=41).to("cuda", non_blocking=True)
+    net.load_state_dict(torch.load(model_path))
+    net.eval()
+    net = net.cuda()
+
+    train_pre, val_pre, train_labels, val_labels = [], [], [], []
+    print("开始预测", flush=True)
+
+    with torch.no_grad():
+        for num, (x, y) in enumerate(data):
+            x = torch.LongTensor(x)
+            x = x.cuda()
+            y = y.cuda()
+            yhat = net(x)
+            yhat = yhat.flatten()
+            loss = criterion(yhat, y)
+            val_pre.extend(yhat.cpu().detach().numpy().flatten().tolist())
+            val_labels.extend(y.cpu().detach().numpy().astype('int32').flatten().tolist())
+
+    print("validation loss:: " + str(loss), flush=True)
+    for key in metrics_dict.keys():
+        if (key != "auc" and key != "AUPRC"):
+            metrics = metrics_dict[key](val_labels, val_pre, thresh=0.5)
+        else:
+            metrics = metrics_dict[key](val_labels, val_pre)
+        print("validation_" + key + ": " + str(metrics), flush=True)
+
+    tn_t, fp_t, fn_t, tp_t = cofusion_matrix(val_labels, val_pre, thresh=0.5)
+    print(f"validation_true_negative:: value: %f" %tn_t, flush=True)
+    print(f"validation_false_positive:: value: %f" % fp_t, flush=True)
+    print(f"validation_false_negative:: value: %f" % fn_t, flush=True)
+    print(f"validation_true_positive:: value: %f" %tp_t, flush=True)
+    del x, y, yhat, tn_t, fp_t, fn_t, tp_t, val_labels, val_pre, metrics
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+torch.manual_seed(520)
+torch.cuda.manual_seed(520)
+# 执行预测
+if __name__ == "__main__":
+    # 输入文件路径
+    PositivePath = ""
+    NegativePath = ""
+    model_path = ""
+
+    predict(PositivePath, NegativePath, model_path)
+
