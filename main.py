@@ -69,7 +69,7 @@ def ModelTrainingWithCrossValidation(PositiveCSV, NegativeCSV, bs, net, lr, epoc
 
     for fold, (train_idx, test_idx) in enumerate(kf.split(AllData)):
         print(f"Starting fold {fold + 1}")
-
+        net = Deepnet(channel=41, hidden=4, dropout=0.3, inputsize=4).to("cuda", non_blocking = True)
         # Split data
         train_dataset = [AllData[i] for i in train_idx]
         test_dataset = [AllData[i] for i in test_idx]
